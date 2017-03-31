@@ -79,6 +79,11 @@ public class OpenStack4JDriver extends VimDriver {
   private Logger log = LoggerFactory.getLogger(OpenStack4JDriver.class);
   private static Lock lock;
 
+  //This map should be implemented using VimInstance as key, but it needs to override VimInstance::hashCode()
+  //Using VimInstance as key ensures that a new OSClient will be created and cached when password or other attributes change
+  //MAP <Id VIM , client>
+  private HashMap<String, OSClient> osCache = new HashMap<String, OSClient>();
+
   public OpenStack4JDriver() {
     super();
     init();
@@ -92,7 +97,13 @@ public class OpenStack4JDriver extends VimDriver {
 
   public OSClient authenticate(VimInstance vimInstance) throws VimDriverException {
 
-    OSClient os;
+    //OSClient os;
+    OSClient os = osCache.get(vimInstance.getId());
+    if (os != null) {
+      log.debug("Returning cached osClient...");
+      return os;
+    }
+
     try {
       if (isV3API(vimInstance)) {
 
@@ -125,6 +136,8 @@ public class OpenStack4JDriver extends VimDriver {
                 "Not found region '"
                     + vimInstance.getLocation().getName()
                     + "'. Use default one...");
+            osCache.put(vimInstance.getId(), os);
+            log.debug("saved new osClient in cache");
             return os;
           }
         }
@@ -153,6 +166,8 @@ public class OpenStack4JDriver extends VimDriver {
     } catch (AuthenticationException e) {
       throw new VimDriverException(e.getMessage(), e);
     }
+    osCache.put(vimInstance.getId(), os);
+    log.debug("saved new osClient in cache");
     return os;
   }
 
@@ -580,7 +595,8 @@ public class OpenStack4JDriver extends VimDriver {
         server.setFloatingIps(new HashMap<String, String>());
       }
       if (floatingIps != null && floatingIps.size() > 0) {
-        OpenStack4JDriver.lock.lock(); // TODO chooseFloating ip is lock but association is parallel
+        OpenStack4JDriver.lock
+            .lock(); // TODO chooseFloating ip is lock but association is parallel
         log.debug("Assigning FloatingIPs to VM with hostname: " + name);
         log.debug("FloatingIPs are: " + floatingIps);
         int freeIps = listFloatingIps(this.authenticate(vimInstance), vimInstance).size();
